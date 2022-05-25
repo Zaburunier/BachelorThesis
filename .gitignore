@@ -1,0 +1,22 @@
+FaceVolumeer_Learn/checkpoints/
+FaceVolumeer_Learn/Trained model/ckpt-[0-9][0-9].*
+FaceVolumeer_Learn/testing/
+FaceVolumeer_Learn/3DMM_definition/3DMM_shape_basis.dat
+FaceVolumeer_Learn/data/
+FaceVolumeer_Learn/very_small_data/
+FaceVolumeer_Learn/basel/
+NetworkTraining/
+pythonProject/
+temp_learn/
+Задание на выполнение/
+Календарный план/
+Материалы для защиты/
+Материалы для работы/
+Общаяя блок-схема решения/
+ПМИ/
+Под статью/
+Поиск подходящей модели/
+Практика/
+РПЗ/
+ТЗ/
+Разведка.docx
