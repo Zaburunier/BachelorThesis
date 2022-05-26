@@ -9,6 +9,7 @@ from keras.regularizers import L1, L2
 
 import learning_const
 from learning_const import ShapeParamDimensionSize, AlbedoParamDimensionSize, BATCH_SIZE, RANDOM_SEED
+import logging
 
 
 class Decoder(Model):
@@ -28,9 +29,10 @@ class Decoder(Model):
         '''
         pass
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, logger : logging.Logger, *args, **kwargs):
         super(Decoder, self).__init__(*args, **kwargs)
 
+        self.logger = logger
         self._init_set_name(self.LayerNamePrefix)
         self.model = self.ConfigureModel()
         print("Расшифрощик успешно создан.\n......................................")
@@ -288,13 +290,14 @@ class AlbedoDecoder(Decoder):
     @property
     def LayerNamePrefix(self) -> str: return "DA"
 
-    def __init__(self):
+    def __init__(self, logger : logging.Logger):
         print("Конфигурируем расшифровщик альбедо...")
 
-        super(AlbedoDecoder, self).__init__()
+        super(AlbedoDecoder, self).__init__(logger)
 
     def call(self, inputs, training=None, mask=None):
         #print("Получение текстуры альбедо из кодового вектора...")
+        self.logger.info("Оцениваем альбедо...")
         return super(AlbedoDecoder, self).call(inputs, training, mask)
 
 
@@ -309,11 +312,12 @@ class ShapeDecoder(Decoder):
     @property
     def LayerNamePrefix(self) -> str: return "DS"
 
-    def __init__(self):
+    def __init__(self, logger : logging.Logger):
         print("Конфигурируем расшифровщик формы...")
 
-        super(ShapeDecoder, self).__init__()
+        super(ShapeDecoder, self).__init__(logger)
 
     def call(self, inputs, training=None, mask=None):
         #print("Получение формы из кодового вектора...")
+        self.logger.info("Оцениваем форму...")
         return super(ShapeDecoder, self).call(inputs, training, mask)

@@ -108,6 +108,7 @@ class MainWindow(QMainWindow):
         self.imageLoader.processImageButton.clicked.connect(self.OnProcessImageButtonClicked)
         self.imageLoader.onImageSelectionChanged.connect(self.OnImageSelectionChanged)
         self.imageProcessor.onImageProcessingCompleted.connect(self.modelViewer.OnImageProcessingCompleted)
+        self.imageProcessor.onImageProcessingBegin.connect(self.modelViewer.OnImageProcessingBegin)
 
 
     def OnImageSelectionChanged(self, fileName):

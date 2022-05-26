@@ -17,6 +17,7 @@ from rendering import RenderingTools
 from tools.FitLogCallback import FitCallback
 
 import tensorflow as tf
+import time
 
 DATASET_INPUT_TYPESPEC = (tf.TensorSpec(dtype=tf.float32, shape=(learning_const.IMAGE_SIZE[0], learning_const.IMAGE_SIZE[1], 3)),
                           tf.TensorSpec(dtype=tf.float32, shape=(learning_const.IMAGE_SIZE[0], learning_const.IMAGE_SIZE[1], 1)),
@@ -35,13 +36,16 @@ class NetworkFacade:
         Конструктор экземпляра (загружаем модель сети)
         '''
         self.network = self.InitializeNetwork()
-        self.optimizer = Adam(learning_rate = 8.0e-04, beta_1 = 0.8)#, epsilon = 1e-04, clipvalue = .04, clipnorm = 3.0)
+        self.optimizer = Adam(learning_rate = 1.0e-03, beta_1 = 0.5)#, epsilon = 1e-04, clipvalue = .04, clipnorm = 3.0)
         self.epoch_counter = tf.Variable(initial_value = 0, dtype = tf.int32, trainable = False)
 
-        self.checkpoint = tf.train.Checkpoint(root = self.network, optimizer = self.optimizer, epoch_counter = self.epoch_counter)
+        self.checkpoint = tf.train.Checkpoint(root = self.network, epoch_counter = self.epoch_counter)#, optimizer = self.optimizer)
         self.checkpoint_manager = tf.train.CheckpointManager(checkpoint = self.checkpoint, directory = learning_const.NETWORK_MODEL_SAVE_DIRECTORY, max_to_keep = 12)
         print(f"Checking manager last checkpoint: {self.checkpoint_manager.latest_checkpoint}")
         print(f"Called checkpoint manager to restore: {self.checkpoint_manager.restore_or_initialize()}")
+        self.network.encoder.trainable = True
+        self.network.shape_decoder.trainable = True
+        self.network.albedo_decoder.trainable = True
 
         self.logger = FitCallback()
         self.csv_logger = CSVLogger(filename=self.checkpoint_manager.directory + "training log.csv", append=True)
@@ -77,8 +81,11 @@ class NetworkFacade:
         if max_validation_steps == 0 and test_data_generator is not None:
             max_validation_steps = test_data_generator.__len__()
 
+        if self.network.optimizer is None:
+            self.network.optimizer = self.optimizer
+
         if self.network._is_compiled == False:
-            self.network.compile(optimizer = self.optimizer)
+            self.network.compile(optimizer = self.network.optimizer)
             print("Optimizer:", self.network.optimizer.get_config())
 
         '''if (test_data_generator is None):
@@ -106,6 +113,8 @@ class NetworkFacade:
 
         for epoch in range(n_epochs):
             tf.keras.backend.clear_session()
+            self.network.current_epoch = self.epoch_counter.read_value().numpy()
+            self.network.weights_to_train = self.network.encoder.trainable_weights if self.epoch_counter.read_value().numpy() % 2 == 0 else self.network.trainable_weights
             self.network.reset_states()
 
             '''if (shuffle_data):
@@ -169,6 +178,16 @@ class NetworkFacade:
         if max_validation_steps == 0 and test_data_generator is not None:
             max_validation_steps = test_data_generator.__len__()
 
+        '''if pretrain:
+            if self.epoch_counter.read_value().numpy() % 2 == 1:
+                self.network.shape_decoder.trainable = False
+                self.network.albedo_decoder.trainable = True
+                # self.network.using_landmark_loss_flag = True
+            else:
+                self.network.shape_decoder.trainable = True
+                self.network.albedo_decoder.trainable = True
+                # self.network.using_landmark_loss_flag = False'''
+
         if self.network._is_compiled == False:
             self.network.compile(optimizer = self.optimizer)
             print("Optimizer:", self.network.optimizer.get_config())
@@ -179,6 +198,8 @@ class NetworkFacade:
 
         self.network.build(tf.TensorShape((learning_const.BATCH_SIZE, learning_const.IMAGE_SIZE[0], learning_const.IMAGE_SIZE[1], 3)))
         self.network.reset_states()
+        self.network.current_epoch = self.epoch_counter.read_value().numpy()
+        self.network.weights_to_train = self.network.encoder.trainable_weights if self.epoch_counter.read_value().numpy() % 2 == 0 else self.network.trainable_weights
 
         history = self.network.fit(x=train_data_generator, verbose=2, batch_size=learning_const.BATCH_SIZE,
                                    epochs=self.epoch_counter.read_value().numpy() + 1,
@@ -191,6 +212,8 @@ class NetworkFacade:
 
         self.epoch_counter.assign_add(1)
         self.checkpoint_manager.save()
+        time.sleep(0.5)
+        return None
 
 
 
@@ -206,13 +229,13 @@ class NetworkFacade:
         3 - Ракурс лица, три первых числа - углы вращения камеры, три следующих - вектор от камеры до центра модели (данные из нейросети, размер [BATCH_SIZE, 6]);\n
         4 -
         '''
-        self.GetInfoLogger().info("Подготовка данных для передачи в нейросеть...")
+        self.GetInfoLogger().info("Подготовка данных...\n")
         image_batch = tf.tile(tf.expand_dims(img_to_array(img.resize((224, 224))) / 255.0, axis = 0), (learning_const.BATCH_SIZE, 1, 1, 1)) #tf.concat([tf.expand_dims(img_to_array(img.resize((224, 224))) / 255.0, axis = 0), tf.zeros((learning_const.BATCH_SIZE - 1, learning_const.IMAGE_SIZE[0], learning_const.IMAGE_SIZE[1], 3))], axis = 0)
-        self.GetInfoLogger().info("Подготовка данных завершена.")
+
         network_data, render_data = self.network.predict_step((image_batch, tf.zeros((learning_const.BATCH_SIZE, learning_const.IMAGE_SIZE[0], learning_const.IMAGE_SIZE[1], 1)), tf.zeros((learning_const.BATCH_SIZE, learning_const.TEXTURE_SIZE[0], learning_const.TEXTURE_SIZE[1], 1))))
         shape_data, vertices, albedo_data, projection_data, converted_projection_data, lightning_data = network_data
         synthesized_images, synthesized_image_masks, unwarped_textures, unwarped_shadings, unwarped_normals, rotated_vertices = render_data
-        self.GetInfoLogger().info("Возвращаем результаты обработки...")
+        self.GetInfoLogger().info("\nВозвращаем результаты обработки...")
         return shape_data[0], vertices[0], albedo_data[0], projection_data[0], converted_projection_data[0], lightning_data[0], synthesized_images[0], synthesized_image_masks[0], unwarped_textures[0], unwarped_shadings[0], unwarped_normals[0],  rotated_vertices[0]
 
 

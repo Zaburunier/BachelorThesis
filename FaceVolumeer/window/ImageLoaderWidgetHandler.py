@@ -123,7 +123,7 @@ class ImageLoaderWidgetHandler(QObject):
         Метод смены состояния виджетов при сбросе выбора изображения
         :return:
         '''
-        self.imageAreaLabel.setPixmap(None)
+        #self.imageAreaLabel.setPixmap(QPixmap.)
         self.imageFilenameLabel.setText(DEFAULT_LABEL_TEXT)
         self.imageFilenameLabel.setStyleSheet(const.IMAGE_NOT_LOADED_LABEL_STYLESHEET)
         self.processImageButton.setEnabled(False)

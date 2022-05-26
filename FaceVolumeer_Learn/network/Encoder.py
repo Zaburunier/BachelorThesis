@@ -1,3 +1,5 @@
+import logging
+
 from tensorflow import Tensor
 from keras import Input
 from keras.layers import Conv2D, AvgPool2D, LeakyReLU, BatchNormalization, Dense, Flatten, InputSpec, MaxPool2D
@@ -11,11 +13,13 @@ from learning_const import ShapeParamDimensionSize, AlbedoParamDimensionSize, Pr
 
 class Encoder(Model):
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, logger : logging.Logger, *args, **kwargs):
         '''
         Конструктор модели
         '''
         super(Encoder, self).__init__(*args, **kwargs)
+
+        self.logger = logger
 
         self.shape_encoder, \
         self.albedo_encoder, \
@@ -29,6 +33,7 @@ class Encoder(Model):
                         self.light_encoder.outputs]
 
     def call(self, inputs, training=None, mask=None):
+        self.logger.info("Кодирование изображения...")
         return self.Encode(inputs, training, mask)
 
     def compile(self,

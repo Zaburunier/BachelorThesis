@@ -46,6 +46,7 @@ class Volumeer2(Model):
         #self.base_model_trimesh = Volumeer2.LoadBaselModel(MODEL_DIR)
         self.base_model_trimesh = Volumeer2.Load3DMM(BASE_MODEL_DATA_DIRECTORY)
         self.logger = logging.getLogger("volumeer_log")
+        self.logger.setLevel("INFO")
 
         base_model_triangle_2d_data =  Triangle2DData(learning_const.BASE_MODEL_DATA_DIRECTORY + "triangles_2d.dat").data
         self.faces_on_texture = tf.tile(tf.expand_dims(tf.gather(self.base_model_trimesh.faces, base_model_triangle_2d_data, axis=0), axis = 0), multiples = [learning_const.BATCH_SIZE, 1, 1, 1])
@@ -61,9 +62,9 @@ class Volumeer2(Model):
 
         print("СОЗДАНИЕ АВТОЭНКОДЕРНОЙ СЕТИ")
         # Подготавливаем нейронные сети
-        self.encoder = Encoder()
-        self.shape_decoder = ShapeDecoder()
-        self.albedo_decoder = AlbedoDecoder()
+        self.encoder = Encoder(self.logger)
+        self.shape_decoder = ShapeDecoder(self.logger)
+        self.albedo_decoder = AlbedoDecoder(self.logger)
 
         self.mean_metric = keras.metrics.Mean()
         print("--------------------------------------\nКОНФИГУРАЦИЯ УЗЛОВ АВТОЭНКОДЕРНОЙ СЕТИ ЗАВЕРШЕНА\n")
@@ -77,9 +78,9 @@ class Volumeer2(Model):
         self.projection_loss = ProjectionLoss.ProjectionLoss(weight = 5.0)
         self.albedo_symmetry_loss = AlbedoSymmetryLoss.AlbedoSymmetryLoss(weight=1.0)
         self.albedo_constancy_loss = AlbedoConstancyLoss.AlbedoConstancyLoss(weight=10.0)
-        self.shape_smoothness_loss = ShapeSmoothnessLoss.ShapeSmoothnessLoss(weight=1000.0)
+        self.shape_smoothness_loss = ShapeSmoothnessLoss.ShapeSmoothnessLoss(weight=100.0)
         self.shape_reconstruction_loss = ShapeLoss.ShapeLoss(weight=10.0)
-        self.texture_reconstruction_loss = TextureLoss.TextureLoss(weight=1.0)
+        self.texture_reconstruction_loss = TextureLoss.TextureLoss(weight=2.0)
         self.landmark_loss = LandmarkLoss.LandmarkLoss(weight = 0.1)
 
         self.total_loss_metric = Mean(name = "total_loss_metric")
@@ -96,6 +97,9 @@ class Volumeer2(Model):
         self.using_landmark_loss_flag = False
         self.using_reconstruction_loss_flag = False
         self.using_albedo_constancy_loss_flag = False
+
+        self.current_epoch = 0
+        self.weights_to_train = None
 
 
     @property
@@ -117,6 +121,8 @@ class Volumeer2(Model):
 
     @tf.function#(input_signature = (tf.TensorSpec(dtype=tf.float32, shape=(learning_const.BATCH_SIZE, learning_const.IMAGE_SIZE[0], learning_const.IMAGE_SIZE[1], 3)), tf.dtypes.as_dtype(bool), None))
     def call(self, inputs : tf.Tensor, training : tf.bool = None, mask=None):
+        self.logger.info("Подача изображения в нейросеть...")
+
         #print("Пропускаем изображения через автоэнкодер...")
         # 1. Проводим данные через кодировщик
         #encoded_shape, encoded_albedo, encoded_projection, encoded_lightning = self.encoder(inputs, training = training, mask = mask)
@@ -193,7 +199,7 @@ class Volumeer2(Model):
         input_images, input_image_masks, input_texture_masks = data[0]
 
         #print(f"На вход приняты следующие данные: размер бэтча - {input_images.points[0]}, размер изображения - {input_images.points[1:3]}, число каналов - {input_images.points[3]})\n")
-        with tf.GradientTape() as gradient_tape:
+        with tf.GradientTape(persistent = True) as gradient_tape:
             network_data = self(input_images, training = True)
 
             synthesized_data = self.PerformAnalyticRender_Learning(data[0], network_data, gradient_tape)
@@ -202,7 +208,8 @@ class Volumeer2(Model):
             shape_smoothness_loss, shape_reconstruction_loss, texture_reconstruction_loss, \
             landmark_loss, regularization_loss = self.CalculateLossFunctions(data[0], data[1], network_data, synthesized_data)
 
-        gradients = gradient_tape.gradient(total_loss, self.trainable_weights)
+        #tf.cond(self.current_epoch % 2 == 0, lambda : self.encoder.trainable_weights, lambda: self.trainable_weights)
+        gradients = gradient_tape.gradient(total_loss, self.weights_to_train)
         '''for i in range(len(gradients)):
             if (tf.math.reduce_any(tf.math.is_nan(gradients[i]))):
                 print("GOT NAN GRADIENTS")
@@ -220,11 +227,32 @@ class Volumeer2(Model):
 
         def OnNanValuesNotAppeared():
             #tf.print("Gradients are ok, updating model...")
-            self.optimizer.apply_gradients(zip(gradients, self.trainable_weights))
+            self.optimizer.apply_gradients(zip(gradients, self.weights_to_train))
+            print(f"Trainable weights count: {len(self.weights_to_train)}")
+            #print(f"First weight: {self.weights_to_train[0]}")
 
 
         gradients_nan_flag = tf.math.reduce_any([tf.math.reduce_any(tf.math.is_nan(grads)) for grads in gradients])
         tf.cond(gradients_nan_flag, OnNanValuesAppeared, OnNanValuesNotAppeared)
+
+        '''@tf.function
+        def ApplyGradients(gradients, weights):
+            self.optimizer.apply_gradients(zip(gradients, weights))
+            return None
+
+        @tf.function
+        def UpdateWeights():
+            gradients = gradient_tape.gradient(total_loss, self.trainable_weights)
+            gradients_nan_flag = tf.math.reduce_any([tf.math.reduce_any(tf.math.is_nan(grads)) for grads in gradients])
+            tf.cond(gradients_nan_flag, lambda : None, lambda : ApplyGradients(gradients, self.trainable_weights))# self.optimizer.apply_gradients(zip(gradients, self.trainable_weights)))
+
+        @tf.function
+        def UpdateEncoderWeights():
+            gradients = gradient_tape.gradient(total_loss, self.encoder.trainable_weights)
+            gradients_nan_flag = tf.math.reduce_any([tf.math.reduce_any(tf.math.is_nan(grads)) for grads in gradients])
+            tf.cond(gradients_nan_flag, lambda : None, lambda : ApplyGradients(gradients, self.encoder.trainable_weights))#self.optimizer.apply_gradients(zip(gradients, self.encoder.trainable_weights)))
+
+        tf.cond(self.current_epoch % 2 == 0, UpdateEncoderWeights, UpdateWeights)'''
 
         self.total_loss_metric.update_state(total_loss)
         self.image_reconstruction_metric.update_state(image_reconstruction_loss)
@@ -259,7 +287,7 @@ class Volumeer2(Model):
         input_textures, input_projections, input_shapes = data[1]
         # print(f"На вход приняты следующие данные: размер бэтча - {input_images.points[0]}, размер изображения - {input_images.points[1:3]}, число каналов - {input_images.points[3]})\n")
 
-        network_data = self(input_images, training = True)
+        network_data = self(input_images, training = False)
 
         synthesized_data = self.PerformAnalyticRender_Learning(data[0], network_data)
 
@@ -292,13 +320,11 @@ class Volumeer2(Model):
 
     @tf.function
     def predict_step(self, data):
-        self.logger.info("Начало обработки изображения...")
+        self.logger.info("Начало обработки изображения.")
         input_images, input_image_masks, input_texture_masks = data
         # print(f"На вход приняты следующие данные: размер бэтча - {input_images.points[0]}, размер изображения - {input_images.points[1:3]}, число каналов - {input_images.points[3]})\n")
 
-        self.logger.info("Подача изображения в нейросеть...")
-        network_data = self(input_images, training = True)#False)
-        self.logger.info("Аналитические преобразования...")
+        network_data = self(input_images, training = False)
         render_data = self.PerformAnalyticRender(network_data)
 
         '''if (tf.config.functions_run_eagerly() == True):
@@ -351,16 +377,20 @@ class Volumeer2(Model):
         :param gradient_tape: Экземпляр класса для отслеживания градиентов
         :return: Кортеж данных: (синтезированные изображения, их маски, текстурные развёртки, теневые развёртки, карты нормалей)
         '''
+        self.logger.info("Аналитические преобразования...")
+
         shape_data, vertices, albedo_data, projection_data, converted_projection_data, lightning_data = network_data
 
         #print("Проводим обратные преобразования...")
 
         # Формируем матрицы ракурса образцов
+        self.logger.info("Формируем матрицы проецирования...")
         projection_matrices = ProjectionTools.CreateRotationMatrices(converted_projection_data)
         rotated_vertices = ProjectionTools.RotatePointsWithMatrices(points = vertices, projection_matrices = projection_matrices)
 
         # Теперь нам нужно перейти от текстуры формы к текстуре нормалей
         # tf.print("Формируем карты нормалей...")
+        self.logger.info("Формируем карту нормалей...")
         batch_faces = tf.cast(tf.tile(input=tf.expand_dims(self.base_model_trimesh.faces,
                                                            axis=0),
                                       multiples=[learning_const.BATCH_SIZE, 1, 1]), dtype=tf.int32)
@@ -375,6 +405,7 @@ class Volumeer2(Model):
 
         # Текстура нормали позволяет нам сформировать текстуру затенения
         # tf.print("Получаем карту теней...")
+        self.logger.info("Формируем карту теней...")
         unwarped_normals_flatten = tf.reshape(unwarped_normals, shape=(learning_const.BATCH_SIZE, -1, 3))
         # Умножаем на 10, чтобы выходы нейросети не стремились в бесконечность (световые коэффициенты потенциально могут быть в единице)
         unwarped_shadings_flatten = Shading.Shading.GetNormalShading(unwarped_normals_flatten, lightning_data)
@@ -383,22 +414,24 @@ class Volumeer2(Model):
 
         # Имея текстуру альбедо изначально и получив текстуру затенения, получаем итоговую текстуру
         # tf.print("Формируем лицевую текстуру...")
+        self.logger.info("Формируем лицевую текстуру...")
         unwarped_textures = tf.multiply(albedo_data, unwarped_shadings)
 
         # Здесь же можем наложить эту текстуру и получить модель головы
+        self.logger.info("Синтезируем изображения...")
         if (gradient_tape == None):
             vertex_colors = rendering.ImageRendering.ConvertTextureToVertexColors(self.base_model_trimesh.visual.uv, unwarped_textures)
-            synthesized = rendering.ImageRendering.RenderImages(vertices=rotated_vertices,
+            synthesized_images, synthesized_image_masks = rendering.ImageRendering.RenderImages(vertices=rotated_vertices,
                                                                 vertex_normals=rotated_vertex_normals,
                                                                 vertex_colors=vertex_colors)
         else:
             with gradient_tape.stop_recording():
                 vertex_colors = rendering.ImageRendering.ConvertTextureToVertexColors(self.base_model_trimesh.visual.uv, unwarped_textures)
-                synthesized = rendering.ImageRendering.RenderImages(vertices=rotated_vertices,
+                synthesized_images, synthesized_image_masks = rendering.ImageRendering.RenderImages(vertices=rotated_vertices,
                                                                     vertex_normals=rotated_vertex_normals,
                                                                     vertex_colors=vertex_colors)
-        synthesized_images = synthesized[0] / 255.0
-        synthesized_image_masks = synthesized[1]
+        synthesized_images /= 255.0
+        #synthesized_image_masks = synthesized[1]
 
         return synthesized_images, synthesized_image_masks, unwarped_textures, unwarped_shadings, unwarped_normals, rotated_vertices
 
@@ -418,11 +451,11 @@ class Volumeer2(Model):
         shape_data, vertices, albedo_data, projection_data, converted_projection_data, lightning_data = network_data
         synthesized_images, synthesized_image_masks, unwarped_textures, unwarped_shadings, unwarped_normals, rotated_vertices = synthesized_data
 
-        visualizer.ModelVisualizer.VisualizeFromNetworkData(input_shapes[0], (self.mean_projection + input_projections * self.std_projection)[0], input_textures[0])
+        '''visualizer.ModelVisualizer.VisualizeFromNetworkData(input_shapes[0], (self.mean_projection + input_projections * self.std_projection)[0], input_textures[0])
         visualizer.ModelVisualizer.VisualizeFromNetworkData(vertices[0], converted_projection_data[0], unwarped_textures[0])
 
         visualizer.ModelVisualizer.VisualizeFromNetworkData(input_shapes[1], (self.mean_projection + input_projections * self.std_projection)[1], input_textures[1])
-        visualizer.ModelVisualizer.VisualizeFromNetworkData(vertices[1], converted_projection_data[1], unwarped_textures[1])
+        visualizer.ModelVisualizer.VisualizeFromNetworkData(vertices[1], converted_projection_data[1], unwarped_textures[1])'''
 
         if (tf.config.functions_run_eagerly() == True):
             input_images_numpy = input_images.numpy()
@@ -473,10 +506,10 @@ class Volumeer2(Model):
                                                     self.landmark_loss.GatherLandmarks(rotated_vertices))
         # tf.print(f"Потеря по точности ключевых точек = {landmark_loss}")
 
-        regularization_loss = 1.0e-01 * tf.add_n(self.losses)
+        regularization_loss = 2.0e-02 * tf.add_n(self.losses)
         # tf.print(f"Потеря по регуляризации весов: {regularization_loss}")
 
-        loss_value = projection_loss + shape_reconstruction_loss + texture_reconstruction_loss + albedo_symmetry_loss + shape_smoothness_loss# + regularization_loss# + landmark_loss + regularization_loss
+        loss_value = projection_loss + shape_reconstruction_loss + texture_reconstruction_loss + albedo_symmetry_loss + shape_smoothness_loss + regularization_loss# + landmark_loss + regularization_loss
         if (self.using_landmark_loss_flag):
             loss_value += landmark_loss
 

@@ -5,7 +5,7 @@ from PySide6.QtCore import Qt, QSize, QThread, Signal, QObject
 from PySide6.QtGui import QImage
 from processing.ImageProcessor import ImageProcessor
 from PIL import Image
-
+from const import TEXTBOX_FONT
 
 class ImageProcessorWidgetHandler(QObject):
     processingThread = QThread()
@@ -35,6 +35,8 @@ class ImageProcessorWidgetHandler(QObject):
         # 2. Текстовый лог с сообщениями о стадии обработки
         # По аналогии со шкалой: сначала пустой, потом заполняется сообщениями, потом сбрасывается
         self.imageProcessingLog = QPlainTextEdit()
+        self.imageProcessingLog.setReadOnly(True)
+        self.imageProcessingLog.setFont(TEXTBOX_FONT)
         self.imageProcessingLog.setMinimumSize(QSize(120, 200))
         self.imageProcessingLog.setMaximumSize(QSize(800, 1200))
 
@@ -45,7 +47,7 @@ class ImageProcessorWidgetHandler(QObject):
 
         # Здесь же держим объект обработчика, чтобы вызывать его в нужные моменты
         self.imageProcessor = ImageProcessor()
-        self.imageProcessor.logHandler.onLogReceived.connect(self.OnProcessLogReceived)
+        self.imageProcessor.logHandlerWrap.onLogReceived.connect(self.OnProcessLogReceived)
         self.imageProcessor.onProcessingCompleted.connect(self.OnImageProcessingCompleted)
         self.imageProcessor.moveToThread(self.processingThread)
         self.processingThread.started.connect(self.imageProcessor.run)
@@ -67,6 +69,8 @@ class ImageProcessorWidgetHandler(QObject):
 
 
         self.imageProcessor.img = img
+        self.imageProcessingProgressBar.setValue(0.0)
+        self.imageProcessingLog.clear()
         self.processingThread.start()
         self.onImageProcessingBegin.emit()
 
@@ -78,8 +82,6 @@ class ImageProcessorWidgetHandler(QObject):
 
     def OnImageProcessingCompleted(self, predicted_data):
         self.onImageProcessingCompleted.emit(predicted_data)
-        self.imageProcessingProgressBar.setValue(0.0)
-        self.imageProcessingLog.clear()
 
 
     def ResetState(self):

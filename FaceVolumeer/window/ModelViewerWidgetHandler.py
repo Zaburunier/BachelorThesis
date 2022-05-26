@@ -100,6 +100,10 @@ class ModelViewerWidgetHandler(QObject):
         self.ResetState()
 
 
+    def OnImageProcessingBegin(self):
+        self.ResetState()
+
+
     def OnImageProcessingCompleted(self, prediction_data):
         self.viewResultButton.setDisabled(False)
         self.saveModelButton.setDisabled(False)

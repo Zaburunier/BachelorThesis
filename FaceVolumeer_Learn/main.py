@@ -27,25 +27,26 @@ def main():
     #data_supplier.Render(8, True)
     facade = NetworkFacade()
     #facade.network.load_weights("C:\\Users\\lenya\\Downloads\\evaluation_code\\checkpoints\\")
-    facade.TrainNetwork(train_data, test_data, shuffle_data = True, n_epochs = 50)
+    facade.TrainNetwork(train_data, test_data, shuffle_data = True, n_epochs = 50, pretrain = True)
 
 
 def multiprocess_main():
 
-    for i in range(50):
+    for i in range(80):
         p = multiprocessing.Process(target=train_with_multiprocessing)
         p.start()
         p.join()
 
 
 def train_with_multiprocessing():
+    #tf.config.run_functions_eagerly(True)
     train_data, test_data = NetworkDataGenerator.CreateTrainTestDatasets(dataset_names=['AFLW2000'],
                                                                          single_batch_size=learning_const.BATCH_SIZE,
                                                                          validation_split=0.1, shuffled_split=True)
     facade = NetworkFacade()
 
     #facade.network.load_weights("C:\\Users\\lenya\\Downloads\\evaluation_code\\checkpoints\\")
-    facade.TrainNetworkOnSingleEpoch(train_data, test_data, shuffle_data = True)
+    facade.TrainNetworkOnSingleEpoch(train_data, test_data, shuffle_data = True, pretrain = True)
 
 
 def test_main():
@@ -71,10 +72,10 @@ if __name__ == '__main__':
     numpy.random.seed(learning_const.RANDOM_SEED)
     tf.random.set_seed(learning_const.RANDOM_SEED)
     #tf.config.set_soft_device_placement(True)
-    tf.config.run_functions_eagerly(True)
+    #tf.config.run_functions_eagerly(True)
     #tf.debugging.enable_check_numerics()
     #print(tf.config.list_logical_devices())
     #tf.compat.v1.disable_eager_execution()
-    #multiprocess_main()
-    main()
+    multiprocess_main()
+    #main()
     #test_main()
