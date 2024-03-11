@@ -1,4 +1,5 @@
 # BachelorThesis
+
 Subject: "<i>On 3D Human Face Reconstruction Using Single Image</i>" (neural networks and a bit of 3d graphics)
 
 ВКРБ, защищённая в 2022 году. Тема работы: "<i>Система реконструкции трёхмерной поверхности человеческого лица на основе фотографий</i>". <br/> 
