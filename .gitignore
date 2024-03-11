@@ -3,6 +3,9 @@ FaceVolumeer_Learn/Trained model/ckpt-[0-9][0-9].*
 FaceVolumeer_Learn/testing/
 FaceVolumeer_Learn/3DMM_definition/3DMM_shape_basis.dat
 FaceVolumeer_Learn/data/
+!FaceVolumeer_Learn/data/base_model/
+!FaceVolumeer_Learn/data/NetworkDataGenerator.py
+!train_val_data_test.py
 FaceVolumeer_Learn/very_small_data/
 FaceVolumeer_Learn/basel/
 NetworkTraining/
